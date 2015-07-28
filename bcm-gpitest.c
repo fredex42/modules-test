@@ -51,16 +51,8 @@ void sleep_jit(int jiffies)
     printk(KERN_INFO "done.\n");
 }
 
-void enable_pullup_all(void)
-{
-    /*set pullup resistors*/
-    printk(KERN_INFO "Setting pull-up resistors");
-    *gppud = 0x2;
-    mb();   //set a memory barrier to ensure all reads/writes committed before wait
-    
-    /*wait 150 cycles to stabilise*/
-    sleep_jit(150);
-    
+void _clock_pullup_all(void)
+{    
     printk(KERN_INFO "Clocking value to all gpis");
     /* clock to all pins */
     *gppudclk0 = 0xFFFFFFFF;
@@ -75,7 +67,7 @@ void enable_pullup_all(void)
     mb();   //set a memory barrier to ensure all reads/writes committed before wait    
 }
 
-void enable_pullup(int line)
+void enable_pullup_all(void)
 {
     /*set pullup resistors*/
     printk(KERN_INFO "Setting pull-up resistors");
@@ -84,7 +76,23 @@ void enable_pullup(int line)
     
     /*wait 150 cycles to stabilise*/
     sleep_jit(150);
-    
+    /*clock the value to all pins*/
+    _clock_pullup_all();
+}
+
+void disable_pullup_all(void)
+{
+    /*disable pullup resistors*/
+    printk(KERN_INFO "Disabling pull-up resistors");
+    *gppud = 0x0;
+    mb();
+    /* wait 150 cycles */
+    sleep_jit(150);
+    _clock_pullup_all();
+}
+
+void _clock_specific(int line)
+{
     /*tell system to clock to specific line*/
     printk(KERN_INFO "Clocking value into hardware");
     if(line<31){
@@ -105,20 +113,46 @@ void enable_pullup(int line)
         *gppudclk1 = 0;
     }
     mb();   //set a memory barrier to ensure all reads/writes committed before wait
+}
 
+void enable_pullup(int line)
+{
+    /*set pullup resistors*/
+    printk(KERN_INFO "Setting pull-up resistors");
+    *gppud = 0x2;
+    mb();   //set a memory barrier to ensure all reads/writes committed before wait
+    
+    /*wait 150 cycles to stabilise*/
+    sleep_jit(150);
+    _clock_specific(line);
+}
+
+void disable_pullup(int line)
+{
+    /*set pullup resistors*/
+    printk(KERN_INFO "Setting pull-up resistors");
+    *gppud = 0x0;
+    mb();   //set a memory barrier to ensure all reads/writes committed before wait
+    
+    /*wait 150 cycles to stabilise*/
+    sleep_jit(150);
+    _clock_specific(line);
 }
 
 void setup_input(void)
 {
+    uint32_t mask,val;
     /*see p.92 of BCM2835 ARM Peripherals guide*/
     /*set bottom 3 bits to 0 => pin 0 is an input */
-    printk(KERN_INFO "Setting pin 0 to input\n");
-    *gpfsel0 = (*gpfsel0) & 0x1FFFFFF8;
+    printk(KERN_INFO "Setting pin 4 to input\n");
+    mask = (uint32_t)(1 << 14) + (uint32_t)(1 << 13) + (uint32_t)(1 << 12);
+    //val = ;
+    (*gpfsel0) = (*gpfsel0) & (uint32_t)~mask;
     /*set falling edge detect, p.98*/
     printk(KERN_INFO "Setting up falling edge detect\n");
     *gpfen0 = (*gpfen0) | 0x1;
     mb(); //set a memory barrier to ensure all reads/writes committed
-    enable_pullup_all();
+    enable_pullup(4);
 }
 
 static int __init startup(void)
@@ -130,6 +164,7 @@ static int __init startup(void)
 
 static void __exit finish(void)
 {
+	disable_pullup(4);
 	printk(KERN_INFO "Unloaded bcm hardware module\n");
 }
 
