@@ -40,10 +40,21 @@ uint32_t *gppud=0xF2200094;
 uint32_t *gppudclk0=0xF2200098;
 uint32_t *gppudclk1=0xF220009C;
 
+#define IRQ_NUMBER	49
+#define IRQ_LENGTH	4
+
+char did_init=0;
+
+struct driver_info {
+    int junk;
+};
+
+static struct driver_info driver_info_block;
+
 irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
 {
     printk(KERN_INFO "Ping!\n");
-    return IRQ_NONE;	//we didn't actually handle the interrupt
+    return IRQ_HANDLED;	//we didn't actually handle the interrupt
 }
 
 /*not sure whether this will work as we allow other processes to run
@@ -60,6 +71,7 @@ void sleep_jit(int jiffies)
 
 void _clock_pullup_all(void)
 {    
+	mb();
     printk(KERN_INFO "Clocking value to all gpis");
     /* clock to all pins */
     *gppudclk0 = 0xFFFFFFFF;
@@ -77,6 +89,7 @@ void _clock_pullup_all(void)
 void enable_pullup_all(void)
 {
     /*set pullup resistors*/
+    mb();
     printk(KERN_INFO "Setting pull-up resistors");
     *gppud = 0x2;
     mb();   //set a memory barrier to ensure all reads/writes committed before wait
@@ -90,6 +103,7 @@ void enable_pullup_all(void)
 void disable_pullup_all(void)
 {
     /*disable pullup resistors*/
+    mb();
     printk(KERN_INFO "Disabling pull-up resistors");
     *gppud = 0x0;
     mb();
@@ -126,6 +140,7 @@ void enable_pullup(int line)
 {
     /*set pullup resistors*/
     printk(KERN_INFO "Setting pull-up resistors");
+    mb();
     *gppud = 0x2;
     mb();   //set a memory barrier to ensure all reads/writes committed before wait
     
@@ -137,7 +152,8 @@ void enable_pullup(int line)
 void disable_pullup(int line)
 {
     /*set pullup resistors*/
-    printk(KERN_INFO "Setting pull-up resistors");
+    mb();
+    printk(KERN_INFO "Disabling pull-up resistors");
     *gppud = 0x0;
     mb();   //set a memory barrier to ensure all reads/writes committed before wait
     
@@ -151,32 +167,97 @@ void setup_input(void)
     uint32_t mask,val;
     /*see p.92 of BCM2835 ARM Peripherals guide*/
     /*set bottom 3 bits to 0 => pin 0 is an input */
+    mb();
     printk(KERN_INFO "Setting pin 4 to input\n");
     mask = (uint32_t)(1 << 14) + (uint32_t)(1 << 13) + (uint32_t)(1 << 12);
     //val = ;
+    printk(KERN_INFO "GPFSEL0 value before: 0x%x\n", *gpfsel0);
     (*gpfsel0) = (*gpfsel0) & (uint32_t)~mask;
+    printk(KERN_INFO "GPFSEL0 value after: 0x%x\n", *gpfsel0);
     /*set falling edge detect, p.98*/
-    printk(KERN_INFO "Setting up falling edge detect\n");
-    *gpfen0 = (*gpfen0) | 0x1;
+    printk(KERN_INFO "Setting up pin 4 to falling edge detect\n");
+    *gpfen0 = (*gpfen0) | (1 << 4);
     mb(); //set a memory barrier to ensure all reads/writes committed
     enable_pullup(4);
 }
 
+void setup_interrupt(unsigned int irqnum)
+{
+    uint32_t mask,val;
+    printk(KERN_INFO "Enabling interrupt in register\n");
+    
+    mb();
+    
+    if(irqnum<32){
+	printk(KERN_INFO "Interrupt < 32 so using low register\n");
+	*irq_enable_1 = (*irq_enable_1) | (1 << irqnum);
+    } else if(irqnum<64){
+		printk(KERN_INFO "Interrupt > 32 < 64 so using high register\n");
+		irqnum = irqnum - 32;
+		printk(KERN_INFO "enable register value before 0x%x\n", *irq_enable_2);
+		*irq_enable_2 = (*irq_enable_2) | (1 << irqnum);
+		printk(KERN_INFO "enable register value after 0x%x\n", *irq_enable_2);
+    } else {
+	printk(KERN_ERR "Invalid interrupt number\n");
+    }
+    mb(); //memory barrier to ensure all reads/writes committed
+}
+
+void disable_interrupt(unsigned int irqnum)
+{
+    uint32_t mask,val;
+    printk(KERN_INFO "Disabling interrupt in register\n");
+    
+    mb();
+    
+    if(irqnum<32){
+	printk(KERN_INFO "Interrupt < 32 so using low register\n");
+	*irq_disable_1 = (1 << irqnum);
+    } else if(irqnum<64){
+	printk(KERN_INFO "Interrupt > 32 < 64 so using high register\n");
+	irqnum = irqnum - 32;
+	*irq_disable_2 = (1 << irqnum);
+    } else {
+	printk(KERN_ERR "Invalid interrupt number\n");
+    }
+    mb(); //memory barrier to ensure all reads/writes committed
+}
+
 static int __init startup(void)
 {
-
-	printk(KERN_INFO "Second test accessing bcm hardware\n");
-/* the gpio uses irqs 49->52 (decimal), p.113 */
-	request_irq(49, irq_handler, SA_SHIRQ, "test gpio handler",(void *)(irq_handler));
-
-	setup_input();
-	return 0;
+    int n,c;
+    /*struct driver_info *i;
+    i=(struct driver_info *)kmalloc(sizeof(struct driver_info), GFP_KERNEL);
+    */
+    
+    printk(KERN_INFO "Second test accessing bcm hardware\n");
+    /* the gpio uses irqs 49->52 (decimal), p.113 */
+    
+    for(c=IRQ_NUMBER;c<IRQ_NUMBER+1;++c){
+	    n=request_irq(c, (irq_handler_t)irq_handler, IRQF_SHARED, "test gpio handler",&driver_info_block);
+	    //n=0;
+	    if(n!=0){
+		printk(KERN_ERR "Unable to register interrupt handler: error %d\n",n);
+		did_init=0;
+	    } else {
+		setup_interrupt(c);
+		setup_input();
+		did_init=1;
+	    }
+    }	
+    return 0;
 }
 
 static void __exit finish(void)
 {
+    if(did_init){
+	disable_interrupt(IRQ_NUMBER);
 	disable_pullup(4);
+	free_irq(IRQ_NUMBER, &driver_info_block);
 	printk(KERN_INFO "Unloaded bcm hardware module\n");
+    } else {
+	printk(KERN_INFO "Driver did not initialise properly, so not unloading.\n");
+    }
 }
 
 module_init(startup);

@@ -141,12 +141,11 @@ void disable_pullup(int line)
 
 void setup_input(void)
 {
-    uint32_t mask,val;
+    uint32_t mask;
     /*see p.92 of BCM2835 ARM Peripherals guide*/
     /*set bottom 3 bits to 0 => pin 0 is an input */
     printk(KERN_INFO "Setting pin 4 to input\n");
     mask = (uint32_t)(1 << 14) + (uint32_t)(1 << 13) + (uint32_t)(1 << 12);
-    //val = ;
     (*gpfsel0) = (*gpfsel0) & (uint32_t)~mask;
     /*set falling edge detect, p.98*/
     printk(KERN_INFO "Setting up falling edge detect\n");
