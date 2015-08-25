@@ -4,6 +4,7 @@
 #include <linux/delay.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
+#include <linux/workqueue.h>
 #include <linux/interrupt.h>
 
 #define DRIVER_AUTHOR "Andy Gallagher <andy.gallagher@theguardian.com>"
@@ -40,8 +41,14 @@ uint32_t *gppud=0xF2200094;
 uint32_t *gppudclk0=0xF2200098;
 uint32_t *gppudclk1=0xF220009C;
 
+/* work queue */
+static struct workqueue_struct *my_workqueue;
+
+/* definitions */
 #define IRQ_NUMBER	49
 #define IRQ_LENGTH	4
+
+#define WORK_QUEUE_NAME "bcm-gpitest2.c"
 
 char did_init=0;
 
@@ -51,10 +58,27 @@ struct driver_info {
 
 static struct driver_info driver_info_block;
 
-irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
+//SEE http://www.linuxforums.org/forum/kernel/183688-init_work-two-arguments.html for how to get data from work_struct param
+static void got_gpio(struct work_struct *taskp)
 {
     printk(KERN_INFO "Ping!\n");
-    return IRQ_HANDLED;	//we didn't actually handle the interrupt
+}
+
+irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
+{
+    static int initialised = 0;
+    static struct work_struct task;
+
+    //printk(KERN_INFO "Ping!\n");
+    if(initialised == 0){
+	INIT_WORK(&task,got_gpio);
+	initialised = 1;
+    } else {
+	PREPARE_WORK(&task, got_gpio);
+    }
+    queue_work(my_workqueue, &task);
+
+    return IRQ_HANDLED;
 }
 
 /*not sure whether this will work as we allow other processes to run
@@ -230,12 +254,13 @@ static int __init startup(void)
     i=(struct driver_info *)kmalloc(sizeof(struct driver_info), GFP_KERNEL);
     */
     
+    my_workqueue = create_workqueue(WORK_QUEUE_NAME);
     printk(KERN_INFO "Second test accessing bcm hardware\n");
     /* the gpio uses irqs 49->52 (decimal), p.113 */
     
     for(c=IRQ_NUMBER;c<IRQ_NUMBER+1;++c){
-	    n=request_irq(c, (irq_handler_t)irq_handler, IRQF_SHARED, "test gpio handler",&driver_info_block);
-	    //n=0;
+	    n=request_irq(c, &irq_handler, IRQF_SHARED, "test gpio handler",&driver_info_block);
+	    //n=1;
 	    if(n!=0){
 		printk(KERN_ERR "Unable to register interrupt handler: error %d\n",n);
 		did_init=0;
