@@ -6,7 +6,7 @@
 #include <linux/sched.h>
 #include <linux/workqueue.h>
 #include <linux/interrupt.h>
-
+#include <asm/io.h> //readl, writel etc.
 #define DRIVER_AUTHOR "Andy Gallagher <andy.gallagher@theguardian.com>"
 #define DRIVER_DESC "BCM gpio testing"
 
@@ -61,7 +61,7 @@ static struct driver_info driver_info_block;
 //SEE http://www.linuxforums.org/forum/kernel/183688-init_work-two-arguments.html for how to get data from work_struct param
 static void got_gpio(struct work_struct *taskp)
 {
-    printk(KERN_INFO "Ping!\n");
+    printk(KERN_INFO "Ping 2!\n");
 }
 
 irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
@@ -69,7 +69,7 @@ irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
     static int initialised = 0;
     static struct work_struct task;
 
-    //printk(KERN_INFO "Ping!\n");
+    printk(KERN_INFO "Ping!\n");
     if(initialised == 0){
 	INIT_WORK(&task,got_gpio);
 	initialised = 1;
@@ -214,17 +214,25 @@ void setup_interrupt(unsigned int irqnum)
     
     if(irqnum<32){
 	printk(KERN_INFO "Interrupt < 32 so using low register\n");
-	*irq_enable_1 = (*irq_enable_1) | (1 << irqnum);
+	val = readl(irq_enable_1);
+	rmb();
+	mask = 1 << irqnum;
+	writel(val | mask,irq_enable_1);
+	//*irq_enable_1 = (*irq_enable_1) | (1 << irqnum);
     } else if(irqnum<64){
-		printk(KERN_INFO "Interrupt > 32 < 64 so using high register\n");
-		irqnum = irqnum - 32;
-		printk(KERN_INFO "enable register value before 0x%x\n", *irq_enable_2);
-		*irq_enable_2 = (*irq_enable_2) | (1 << irqnum);
-		printk(KERN_INFO "enable register value after 0x%x\n", *irq_enable_2);
+	printk(KERN_INFO "Interrupt > 32 < 64 so using high register\n");
+	irqnum = irqnum - 32;
+	val = readl(irq_enable_2);
+	rmb();
+	printk(KERN_INFO "enable register value before 0x%x\n", val);
+	mask = 1 << irqnum;
+	writel(val|mask,irq_enable_2);
+	//*irq_enable_2 = (*irq_enable_2) | (1 << irqnum);
+	printk(KERN_INFO "enable register value after 0x%x\n", *irq_enable_2);
     } else {
 	printk(KERN_ERR "Invalid interrupt number\n");
     }
-    mb(); //memory barrier to ensure all reads/writes committed
+    wmb(); //memory barrier to ensure all reads/writes committed
 }
 
 void disable_interrupt(unsigned int irqnum)
@@ -258,18 +266,19 @@ static int __init startup(void)
     printk(KERN_INFO "Second test accessing bcm hardware\n");
     /* the gpio uses irqs 49->52 (decimal), p.113 */
     
-    for(c=IRQ_NUMBER;c<IRQ_NUMBER+1;++c){
-	    n=request_irq(c, &irq_handler, IRQF_SHARED, "test gpio handler",&driver_info_block);
+    //for(c=IRQ_NUMBER;c<IRQ_NUMBER+1;++c){
+	    n=request_irq(IRQ_NUMBER, &irq_handler, 0, "test gpio handler",&driver_info_block);
 	    //n=1;
 	    if(n!=0){
 		printk(KERN_ERR "Unable to register interrupt handler: error %d\n",n);
 		did_init=0;
 	    } else {
-		setup_interrupt(c);
-		setup_input();
+		//setup_interrupt(IRQ_NUMBER);
+		enable_irq(IRQ_NUMBER);
+		//setup_input();
 		did_init=1;
 	    }
-    }	
+    //}	
     return 0;
 }
 
