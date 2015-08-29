@@ -6,6 +6,8 @@
 #include <linux/sched.h>
 #include <linux/workqueue.h>
 #include <linux/interrupt.h>
+#include <linux/gpio.h>
+
 #include <asm/io.h> //readl, writel etc.
 #define DRIVER_AUTHOR "Andy Gallagher <andy.gallagher@theguardian.com>"
 #define DRIVER_DESC "BCM gpio testing"
@@ -43,6 +45,8 @@ uint32_t *gppudclk1=0xF220009C;
 
 /* work queue */
 static struct workqueue_struct *my_workqueue;
+
+static int irq_number=-1;
 
 /* definitions */
 #define IRQ_NUMBER	49
@@ -89,13 +93,13 @@ void sleep_jit(int jiffies)
     wait_queue_head_t wait;
     printk(KERN_INFO "JIT delay\n");
     init_waitqueue_head(&wait);
-    wait_event_interruptible_timeout(wait, 0, jiffies);
+    wait_event_interruptible_timeout(wait, 0, jiffies/HZ);
     printk(KERN_INFO "done.\n");
 }
 
 void _clock_pullup_all(void)
 {    
-	mb();
+    mb();
     printk(KERN_INFO "Clocking value to all gpis");
     /* clock to all pins */
     *gppudclk0 = 0xFFFFFFFF;
@@ -264,18 +268,20 @@ static int __init startup(void)
     
     my_workqueue = create_workqueue(WORK_QUEUE_NAME);
     printk(KERN_INFO "Second test accessing bcm hardware\n");
-    /* the gpio uses irqs 49->52 (decimal), p.113 */
+    /* we have to go through the Linux GPIO driver, which provides dedicated software interrupts */
+    irq_number=gpio_to_irq(4);
+    printk(KERN_INFO "System HZ is %d",HZ);
     
     //for(c=IRQ_NUMBER;c<IRQ_NUMBER+1;++c){
-	    n=request_irq(IRQ_NUMBER, &irq_handler, 0, "test gpio handler",&driver_info_block);
+	    n=request_irq(irq_number, &irq_handler, 0, "test gpio handler",&driver_info_block);
 	    //n=1;
 	    if(n!=0){
 		printk(KERN_ERR "Unable to register interrupt handler: error %d\n",n);
 		did_init=0;
 	    } else {
 		//setup_interrupt(IRQ_NUMBER);
-		enable_irq(IRQ_NUMBER);
-		//setup_input();
+		//enable_irq(irq_number);
+		setup_input();
 		did_init=1;
 	    }
     //}	
@@ -285,9 +291,10 @@ static int __init startup(void)
 static void __exit finish(void)
 {
     if(did_init){
-	disable_interrupt(IRQ_NUMBER);
+	//disable_interrupt(IRQ_NUMBER);
+	disable_irq(irq_number);
 	disable_pullup(4);
-	free_irq(IRQ_NUMBER, &driver_info_block);
+	free_irq(irq_number, &driver_info_block);
 	printk(KERN_INFO "Unloaded bcm hardware module\n");
     } else {
 	printk(KERN_INFO "Driver did not initialise properly, so not unloading.\n");
