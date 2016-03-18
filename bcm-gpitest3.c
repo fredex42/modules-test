@@ -20,6 +20,7 @@ static int irq_number=-1;
 
 #define WORK_QUEUE_NAME "bcm-gpitest3.c"
 
+
 char did_init=0;
 
 struct driver_info {
