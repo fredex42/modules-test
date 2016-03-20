@@ -72,16 +72,18 @@ irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
 {
     static int initialised = 0;
     static struct work_struct task;
+    static int ctr = 0;
 
-    printk(KERN_INFO "Ping!\n");
-    if(initialised == 0){
+    ++ctr;
+    printk(KERN_INFO "Ping %d!\n",ctr);
+/*    if(initialised == 0){
 	INIT_WORK(&task,got_gpio);
 	initialised = 1;
     } else {
 	PREPARE_WORK(&task, got_gpio);
     }
     queue_work(my_workqueue, &task);
-
+*/
     return IRQ_HANDLED;
 }
 
@@ -118,8 +120,8 @@ void enable_pullup_all(void)
 {
     /*set pullup resistors*/
     mb();
-    printk(KERN_INFO "Setting pull-up resistors");
-    *gppud = 0x2;
+    printk(KERN_INFO "Setting pull-down resistors");
+    *gppud = 0x1;	//0=>neither, 0x1=>pulldown, 0x2=>pullup
     mb();   //set a memory barrier to ensure all reads/writes committed before wait
     
     /*wait 150 cycles to stabilise*/
@@ -205,6 +207,7 @@ void setup_input(void)
     /*set falling edge detect, p.98*/
     printk(KERN_INFO "Setting up pin 4 to falling edge detect\n");
     *gpfen0 = (*gpfen0) | (1 << 4);
+    *gpren0 = (*gpren0) | (1 << 4);
     mb(); //set a memory barrier to ensure all reads/writes committed
     enable_pullup(4);
 }
