@@ -8,8 +8,10 @@
 #include <linux/interrupt.h>
 #include <linux/gpio.h>
 #include <linux/slab.h>
+#include <linux/jiffies.h>
 
-#include <asm/io.h> //readl, writel etc.
+#include <asm-generic/param.h>
+#include <asm-generic/io.h> //readl, writel etc.
 #define DRIVER_AUTHOR "Andy Gallagher <andy.gallagher@theguardian.com>"
 #define DRIVER_DESC "BCM gpio testing"
 
@@ -98,7 +100,7 @@ void sleep_jit(int jiffies)
     wait_queue_head_t wait;
     printk(KERN_INFO "JIT delay\n");
     init_waitqueue_head(&wait);
-    wait_event_interruptible_timeout(wait, 0, jiffies/HZ);
+    wait_event_interruptible_timeout(wait, 0, msecs_to_jiffies(10));
     printk(KERN_INFO "done.\n");
 }
 
