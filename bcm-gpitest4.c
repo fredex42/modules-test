@@ -29,6 +29,7 @@ uint32_t *irq_disable_basic=0xF200B224;
 
 /* GPIO register pointers. See p.90 of BCM2835 ARM Peripherals guide*/
 /*function select*/
+
 uint32_t *gpfsel0=0xF2200000;
 uint32_t *gpfsel1=0xF2200004;
 uint32_t *gpfsel2=0xF2200008;
@@ -52,7 +53,7 @@ static int irq_number=-1;
 #define IRQ_NUMBER	49
 #define IRQ_LENGTH	4
 
-#define WORK_QUEUE_NAME "bcm-gpitest2.c"
+#define WORK_QUEUE_NAME "bcm-gpitest4.c"
 
 static char did_init=0;
 
@@ -67,9 +68,10 @@ struct driver_info {
 //SEE http://www.linuxforums.org/forum/kernel/183688-init_work-two-arguments.html for how to get data from work_struct param
 static void got_gpio(struct work_struct *taskp)
 {
-    struct driver_info *driver_info_block = (struct driver_info *)container_of(taskp, struct driver_info,gpio_task);
+    //struct driver_info *driver_info_block = (struct driver_info *)container_of(taskp, struct driver_info,gpio_task);
     
-    printk(KERN_INFO "Ping 2! DIB at 0x%x\n",driver_info_block);
+    //printk(KERN_INFO "Ping 2! DIB at 0x%x\n",driver_info_block);
+    printk(KERN_INFO "Ping 2!");
 }
 
 irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
@@ -79,14 +81,16 @@ irqreturn_t irq_handler(int irq, void *dev_id, struct pt_regs *regs)
 
     struct driver_info *driver_info_block = (struct driver_info *)dev_id;
     
-    printk(KERN_INFO "Ping! DIB at 0x%x\n",driver_info_block);
+    printk(KERN_INFO "Ping! DIB at 0x%x\n",(unsigned int)driver_info_block);
  
-    if(initialised == 0){
-	INIT_WORK(driver_info_block->gpio_task,got_gpio);
-	initialised = 1;
-    } else {
-	PREPARE_WORK(driver_info_block->gpio_task, got_gpio);
-    }
+    // should use only INIT_WORK here - see http://linux-kernel.2935.n7.nabble.com/PATCHSET-wq-for-3-15-workqueue-remove-PREPARE-DELAYED-WORK-td809488.html
+    //if(initialised == 0){
+	//INIT_WORK(driver_info_block->gpio_task,got_gpio);
+	//initialised = 1;
+    //} else {
+	//PREPARE_WORK(driver_info_block->gpio_task, got_gpio);
+    //}
+    INIT_WORK(driver_info_block->gpio_task,got_gpio);
     queue_work(driver_info_block->my_workqueue, driver_info_block->gpio_task);
 
     return IRQ_HANDLED;
@@ -204,11 +208,30 @@ void setup_input(void)
     /*set bottom 3 bits to 0 => pin 0 is an input */
     mb();
     printk(KERN_INFO "Setting pin 4 to input\n");
+    //something just here is causing a kernel oops, invalid paging request
+    //appears to be the get value for GPFSEL0
+/*
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361056] Second test accessing bcm hardware
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361182] System HZ is 100
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361183] Setting pin 4 to input
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361225] Unable to handle kernel paging request at virtual address f2200000
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361234] pgd = d75f4000
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361245] [f2200000] *pgd=00000000
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361266] Internal error: Oops: 5 [#1] ARM
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361341] Modules linked in: bcm_gpitest4(O+) cfg80211 rfkill evdev joydev hid_logitech_hidpp hid_logitech_dj snd_bcm2835 snd_pcm snd_timer snd i2c_bcm2835 bcm2835_gpiomem bcm2835_rng phy_generic uio_pdrv_genirq uio fixed i2c_dev ip_tables x_tables ipv6
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361363] CPU: 0 PID: 3374 Comm: insmod Tainted: G           O    4.9.0-6-rpi #1 Debian 4.9.82-1+deb9u3+rpi1
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361368] Hardware name: BCM2835
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361375] task: d75cd1c0 task.stack: d7526000
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361435] PC is at setup_input+0x30/0x94 [bcm_gpitest4]
+Aug  6 21:11:24 raspberrypi kernel: [ 2759.361468] LR is at down_trylock+0x3c/0x78
+
+*/
+
     mask = (uint32_t)(1 << 14) + (uint32_t)(1 << 13) + (uint32_t)(1 << 12);
     //val = ;
-    printk(KERN_INFO "GPFSEL0 value before: 0x%x\n", *gpfsel0);
+    printk(KERN_INFO "GPFSEL0 value before: 0x%x\n", (uint32_t)*gpfsel0);
     (*gpfsel0) = (*gpfsel0) & (uint32_t)~mask;
-    printk(KERN_INFO "GPFSEL0 value after: 0x%x\n", *gpfsel0);
+    printk(KERN_INFO "GPFSEL0 value after: 0x%x\n", (uint32_t)*gpfsel0);
     /*set falling edge detect, p.98*/
     printk(KERN_INFO "Setting up pin 4 to falling edge detect\n");
     *gpfen0 = (*gpfen0) | (1 << 4);
@@ -284,7 +307,7 @@ static int __init startup(void)
     irq_number=gpio_to_irq(4);
     printk(KERN_INFO "System HZ is %d",HZ);
     
-    n=request_irq(irq_number, &irq_handler, 0, "test gpio handler",driver_info_block);
+    n=request_irq(irq_number, (irq_handler_t)&irq_handler, 0, "test gpio handler",driver_info_block);
     if(n!=0){
 	printk(KERN_ERR "Unable to register interrupt handler: error %d\n",n);
 	did_init=0;
